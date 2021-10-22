@@ -50,8 +50,12 @@ def load_front3d(json_path: str, future_model_path: str, front_3D_texture_path: 
                                                                    ceiling_light_strength, label_mapping, json_path)
 
     all_loaded_furniture = Front3DLoader._load_furniture_objs(data, future_model_path, lamp_light_strength, label_mapping)
-
-    created_objects += Front3DLoader._move_and_duplicate_furniture(data, all_loaded_furniture)
+    category_ids = np.unique([obj.get_cp("category_id") for obj in all_loaded_furniture])
+    print("furniture categories", category_ids)
+    objects_to_add = Front3DLoader._move_and_duplicate_furniture(data, all_loaded_furniture)
+    category_ids = np.unique([obj.get_cp("category_id") for obj in objects_to_add])
+    print("objects_to_add categories", category_ids)
+    created_objects += objects_to_add
 
     # add an identifier to the obj
     for obj in created_objects:
@@ -161,6 +165,10 @@ class Front3DLoader:
 
             # set two custom properties, first that it is a 3D_future object and second the category_id
             obj.set_cp("is_3D_future", True)
+            obj.set_cp("uid", mesh_data["uid"])
+            obj.set_cp("jid", mesh_data["jid"])
+            obj.set_cp("instanceid", mesh_data["uid"])
+
             obj.set_cp("category_id", label_mapping.id_from_label(used_obj_name.lower()))
 
             # get the material uid of the current mesh data
@@ -329,9 +337,11 @@ class Front3DLoader:
                 if used_obj_name == "":
                     used_obj_name = "others"
                 for obj in objs:
+                    obj.hide(True)
                     obj.set_name(used_obj_name)
                     # add some custom properties
                     obj.set_cp("uid", ele["uid"])
+                    obj.set_cp("jid", ele["jid"])
                     # this custom property determines if the object was used before
                     # is needed to only clone the second appearance of this object
                     obj.set_cp("is_used", False)
@@ -404,9 +414,11 @@ class Front3DLoader:
                             else:
                                 # if it is the first time use the object directly
                                 new_obj = obj
+                            new_obj.hide(False)
                             created_objects.append(new_obj)
                             new_obj.set_cp("is_used", True)
                             new_obj.set_cp("room_id", room_id)
+                            new_obj.set_cp("instanceid", child["instanceid"])
                             new_obj.set_cp("type", "Object")  # is an object used for the interesting score
                             new_obj.set_cp("coarse_grained_class", new_obj.get_cp("category_id"))
                             # this flips the y and z coordinate to bring it to the blender coordinate system
