@@ -11,6 +11,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("front", help="Path to the 3D front file")
 parser.add_argument("future_folder", help="Path to the 3D Future Model folder.")
 parser.add_argument("front_3D_texture_path", help="Path to the 3D FRONT texture folder.")
+parser.add_argument("image_size", default=512, type=int, help="image size.")
 parser.add_argument("output_dir", help="Path to where the data should be saved")
 args = parser.parse_args()
 panoptic_anno_csv = bproc.utility.resolve_resource(os.path.join("front_3D", "3D_front_mapping_panoptic.csv"))
@@ -163,9 +164,9 @@ else:
     np.save(path_to_camera_rotations, rotations)
     print(centered_objects_category_ids)
     print(special_objects_category_ids)
-
-bproc.camera.set_intrinsics_from_blender_params(1.0472, 512, 512, lens_unit="FOV")
-bproc.camera.set_resolution(512, 512)
+image_size = args.image_size
+bproc.camera.set_intrinsics_from_blender_params(1.0472, image_size, image_size, lens_unit="FOV")
+bproc.camera.set_resolution(image_size, image_size)
 # Also render normals
 bproc.renderer.enable_normals_output()
 # Distance from camera position to 3D point
