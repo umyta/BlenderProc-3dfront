@@ -63,6 +63,7 @@ def check_name(name, keywords=[
 os.makedirs(args.output_dir, exist_ok=True)
 path_to_camera_locations = os.path.join(args.output_dir, 'camera_locations.npy')
 path_to_camera_rotations = os.path.join(args.output_dir, 'rotations.npy')
+
 if os.path.exists(path_to_camera_locations) and os.path.exists(path_to_camera_rotations):
     locations = np.load(path_to_camera_locations)
     rotations = np.load(path_to_camera_rotations)
@@ -107,7 +108,8 @@ else:
     poses = 0
     tries = 0
     centered_objects_category_ids = []
-    while tries < 10000 and poses < 10:
+    num_pose = 10
+    while tries < 10000 and poses < num_pose:
         # Sample point inside house
         height = np.random.uniform(1.4, 1.8)
         location = point_sampler.sample(height)
@@ -167,32 +169,46 @@ else:
 image_size = args.image_size
 bproc.camera.set_intrinsics_from_blender_params(1.0472, image_size, image_size, lens_unit="FOV")
 bproc.camera.set_resolution(image_size, image_size)
-# Also render normals
-bproc.renderer.enable_normals_output()
-# Distance from camera position to 3D point
-bproc.renderer.enable_distance_output()
-# Distance from camera and the plane parallel to the camera with the corresponding point lies on.
-bproc.renderer.enable_depth_output()
+
+def hdf5_exists(output_dir, num_camera):
+    if not os.path.exists(output_dir):
+        return False
+    for cam_id in range(num_camera):
+        out_hdf5_path = os.path.join(output_dir, "%d.hdf5"%cam_id)
+        if not os.path.exists(out_hdf5_path):
+            return False
+
+    return True
+
+data_file_exists = hdf5_exists(args.output_dir, len(locations))
+layout_out_dir = os.path.join(args.output_dir, "layout")
+layout_data_file_exists = hdf5_exists(layout_out_dir, len(locations))
+if not data_file_exists or not layout_data_file_exists:
+    # Also render normals
+    bproc.renderer.enable_normals_output()
+    # Distance from camera position to 3D point
+    bproc.renderer.enable_distance_output()
+    # Distance from camera and the plane parallel to the camera with the corresponding point lies on.
+    bproc.renderer.enable_depth_output()
 
 # set the sample amount to 350
 bproc.renderer.set_samples(350)
 
-# render the whole pipeline
-data = bproc.renderer.render()
-seg_data = bproc.renderer.render_segmap(map_by=["class","instance","name"])
-# bproc.writer.write_coco_annotations(os.path.join(args.output_dir, 'coco_data'),
-#                                     instance_segmaps=seg_data["instance_segmaps"],
-#                                     instance_attribute_maps=seg_data["instance_attribute_maps"],
-#                                     colors=data["colors"],
-#                                     color_file_format="JPEG")
-instance_attribute_maps = os.path.join(args.output_dir, "instance_attribute_maps.json")
-with open(instance_attribute_maps, "w") as f:
-    json.dump(seg_data["instance_attribute_maps"], f)
-seg_data.pop("instance_attribute_maps", None)
-data.update(seg_data)
-# write the data to a .hdf5 container
-bproc.writer.write_hdf5(args.output_dir, data)
-# write down generated poses and rotations
+if not data_file_exists:
+    # render the whole pipeline
+    data = bproc.renderer.render()
+    seg_data = bproc.renderer.render_segmap(map_by=["class","instance","name"])
+    instance_attribute_maps = os.path.join(args.output_dir, "instance_attribute_maps.json")
+    with open(instance_attribute_maps, "w") as f:
+        json.dump(seg_data["instance_attribute_maps"], f)
+    seg_data.pop("instance_attribute_maps", None)
+    data.update(seg_data)
+    # write the data to a .hdf5 container
+    bproc.writer.write_hdf5(args.output_dir, data)
+    # write down generated poses and rotations
+else:
+    print("Skipping data render!")
+
 
 def get_attribute(obj, attribute_name):
     name_to_id = {}
@@ -243,10 +259,16 @@ print("Render layouts.")
 hide_names = []
 skipped_names =[]
 objects_to_save = {}
-for obj in loaded_objects:
+instanceid_to_obj_idx = {}
+for i, obj in enumerate(loaded_objects):
     obj_name = obj.get_name().lower()
     obj_category_id = obj.get_cp("category_id")
     if obj_category_id in things_ids and obj.get_cp("uid") != obj.get_cp("instanceid"):
+        instanceid = obj.get_cp("instanceid")
+        if instanceid not in instanceid_to_obj_idx:
+            instanceid_to_obj_idx[instanceid] = [i]
+        else:
+            instanceid_to_obj_idx[instanceid].append(i)
         hide_names.append(obj_name)
         obj.hide(True)
         value_list_per_obj = get_attributes(obj.blender_obj, ["id", "name", "cp_uid",  "location", "cp_jid", "rotation_euler", "matrix_world", "cp_instanceid"])
@@ -254,16 +276,53 @@ for obj in loaded_objects:
     else:
         skipped_names.append(obj_name)
         obj.hide(False)
-
+print("instanceid_to_obj_idx keys:", instanceid_to_obj_idx.keys())
 objects_path = os.path.join(args.output_dir, "object.json")
-with open(objects_path, "w") as f:
-    json.dump(objects_to_save, f)
-print("Saving objects to %s"%objects_path)
-data = bproc.renderer.render()
-seg_data = bproc.renderer.render_segmap(map_by=["class"])
-data.update(seg_data)
-bproc.writer.write_hdf5(os.path.join(args.output_dir, "layout"), data)
-print(sorted(hide_names))
-print(sorted(skipped_names))
-print(sorted(category_ids))
-print(sorted(things_ids))
+if not os.path.exists(objects_path):
+    with open(objects_path, "w") as f:
+        json.dump(objects_to_save, f)
+    print("Saving objects to %s"%objects_path)
+else:
+    print("Skipping saving object.json!")
+
+if not layout_data_file_exists:
+    for filepath in [os.path.join(layout_out_dir, filename) for filename in os.listdir(layout_out_dir)]:
+        os.remove(filepath)
+    data = bproc.renderer.render()
+    seg_data = bproc.renderer.render_segmap(map_by=["class"])
+    data.update(seg_data)
+    bproc.writer.write_hdf5(layout_out_dir, data)
+    print(sorted(hide_names))
+    print(sorted(skipped_names))
+    print(sorted(category_ids))
+    print(sorted(things_ids))
+else:
+    print("Skipping layout render!")
+
+inst_mask_out_dir = os.path.join(args.output_dir, "inst_masks")
+if not hdf5_exists(inst_mask_out_dir, len(locations)):
+    if os.path.exists(inst_mask_out_dir):
+        for filepath in [os.path.join(inst_mask_out_dir, filename) for filename in os.listdir(inst_mask_out_dir)]:
+            os.remove(filepath)
+
+    for obj in loaded_objects:
+        obj.hide(True)
+    print("Render instance_maps")
+    inst_mask_data = {}
+    for instanceid in instanceid_to_obj_idx:
+        obj_ids = instanceid_to_obj_idx[instanceid]
+        for obj_idx in obj_ids:
+            loaded_objects[obj_idx].hide(False)
+        seg_data = bproc.renderer.render_segmap(map_by=["class"])
+        for obj_idx in obj_ids:
+            loaded_objects[obj_idx].hide(True)
+        inst_masks = []
+        for class_segmap in seg_data['class_segmaps']:
+            inst_mask = np.zeros_like(class_segmap)
+            inst_mask[class_segmap!=0] = 1
+            inst_masks.append(inst_mask)
+        print("instanceid %s: %d"%(instanceid, len(inst_masks)))
+        inst_mask_data[instanceid.replace("/", "_")] = inst_masks
+    bproc.writer.write_hdf5(inst_mask_out_dir, inst_mask_data)
+else:
+    print("Skipping instance render!")
