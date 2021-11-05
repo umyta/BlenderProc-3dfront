@@ -102,6 +102,7 @@ def render_segmap(output_dir: Optional[str] = None, temp_dir: Optional[str] = No
 
         return_dict: Dict[str, Union[np.ndarray, List[np.ndarray]]] = {}
 
+        save_in_csv_attributes: Dict[int, Dict[str, Any]] = {}
         # After rendering
         for frame in range(bpy.context.scene.frame_start, bpy.context.scene.frame_end):  # for each rendered frame
             save_in_csv_attributes: Dict[int, Dict[str, Any]] = {}

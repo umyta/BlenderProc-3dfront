@@ -169,7 +169,6 @@ else:
 image_size = args.image_size
 bproc.camera.set_intrinsics_from_blender_params(1.0472, image_size, image_size, lens_unit="FOV")
 bproc.camera.set_resolution(image_size, image_size)
-
 def hdf5_exists(output_dir, num_camera):
     if not os.path.exists(output_dir):
         return False
@@ -180,149 +179,155 @@ def hdf5_exists(output_dir, num_camera):
 
     return True
 
-data_file_exists = hdf5_exists(args.output_dir, len(locations))
-layout_out_dir = os.path.join(args.output_dir, "layout")
-layout_data_file_exists = hdf5_exists(layout_out_dir, len(locations))
-if not data_file_exists or not layout_data_file_exists:
-    # Also render normals
-    bproc.renderer.enable_normals_output()
-    # Distance from camera position to 3D point
-    bproc.renderer.enable_distance_output()
-    # Distance from camera and the plane parallel to the camera with the corresponding point lies on.
-    bproc.renderer.enable_depth_output()
+if len(locations) > 0:
 
-# set the sample amount to 350
-bproc.renderer.set_samples(350)
+    data_file_exists = hdf5_exists(args.output_dir, len(locations))
+    layout_out_dir = os.path.join(args.output_dir, "layout")
+    layout_data_file_exists = hdf5_exists(layout_out_dir, len(locations))
+    if not data_file_exists or not layout_data_file_exists:
+        # Also render normals
+        bproc.renderer.enable_normals_output()
+        # Distance from camera position to 3D point
+        bproc.renderer.enable_distance_output()
+        # Distance from camera and the plane parallel to the camera with the corresponding point lies on.
+        bproc.renderer.enable_depth_output()
 
-if not data_file_exists:
-    # render the whole pipeline
-    data = bproc.renderer.render()
-    seg_data = bproc.renderer.render_segmap(map_by=["class","instance","name"])
-    instance_attribute_maps = os.path.join(args.output_dir, "instance_attribute_maps.json")
-    with open(instance_attribute_maps, "w") as f:
-        json.dump(seg_data["instance_attribute_maps"], f)
-    seg_data.pop("instance_attribute_maps", None)
-    data.update(seg_data)
-    # write the data to a .hdf5 container
-    bproc.writer.write_hdf5(args.output_dir, data)
-    # write down generated poses and rotations
-else:
-    print("Skipping data render!")
+    # set the sample amount to 350
+    bproc.renderer.set_samples(350)
 
-
-def get_attribute(obj, attribute_name):
-    name_to_id = {}
-    if attribute_name == "id":
-        if obj.name not in name_to_id:
-            name_to_id[obj.name] = len(name_to_id.values())
-        return name_to_id[obj.name]
-    elif attribute_name == "name":
-        return obj.name
-    elif attribute_name == "location":
-        return obj.location
-    elif attribute_name == "rotation_euler":
-        return obj.rotation_euler
-    elif attribute_name == "rotation_forward_vec":
-        # Calc forward vector from rotation matrix
-        rot_mat = obj.rotation_euler.to_matrix()
-        forward = rot_mat @ mathutils.Vector([0, 0, -1])
-        return forward
-    elif attribute_name == "rotation_up_vec":
-        # Calc up vector from rotation matrix
-        rot_mat = obj.rotation_euler.to_matrix()
-        up = rot_mat @ mathutils.Vector([0, 1, 0])
-        return up
-    elif attribute_name == "matrix_world":
-        # Transform matrix_world to given destination frame
-        matrix_world = obj.matrix_world
-        return [[x for x in c] for c in matrix_world]
-    elif attribute_name.startswith("cp_"):
-        custom_property_name = attribute_name[len("cp_"):]
-        # Make sure the requested custom property exist
-        if custom_property_name in obj:
-            return obj[custom_property_name]
-        else:
-            raise Exception("No such custom property: " + custom_property_name)
+    if not data_file_exists:
+        # render the whole pipeline
+        data = bproc.renderer.render()
+        seg_data = bproc.renderer.render_segmap(map_by=["class","instance","name"])
+        instance_attribute_maps = os.path.join(args.output_dir, "instance_attribute_maps.json")
+        with open(instance_attribute_maps, "w") as f:
+            json.dump(seg_data["instance_attribute_maps"], f)
+        seg_data.pop("instance_attribute_maps", None)
+        data.update(seg_data)
+        # write the data to a .hdf5 container
+        bproc.writer.write_hdf5(args.output_dir, data)
+        # write down generated poses and rotations
     else:
-        raise Exception("No such attribute: " + attribute_name)
+        print("Skipping data render!")
 
-def get_attributes(obj, attribute_names):
-    value_list_per_obj = {}
-    for attribute_name in attribute_names:
-        value = get_attribute(obj, attribute_name)
-        if isinstance(value, mathutils.Vector) or isinstance(value, mathutils.Euler):
-            value = list(value)
-        value_list_per_obj[attribute_name] = value
-    return value_list_per_obj
 
-print("Render layouts.")
-hide_names = []
-skipped_names =[]
-objects_to_save = {}
-instanceid_to_obj_idx = {}
-for i, obj in enumerate(loaded_objects):
-    obj_name = obj.get_name().lower()
-    obj_category_id = obj.get_cp("category_id")
-    if obj_category_id in things_ids and obj.get_cp("uid") != obj.get_cp("instanceid"):
-        instanceid = obj.get_cp("instanceid")
-        if instanceid not in instanceid_to_obj_idx:
-            instanceid_to_obj_idx[instanceid] = [i]
+    def get_attribute(obj, attribute_name):
+        name_to_id = {}
+        if attribute_name == "id":
+            if obj.name not in name_to_id:
+                name_to_id[obj.name] = len(name_to_id.values())
+            return name_to_id[obj.name]
+        elif attribute_name == "name":
+            return obj.name
+        elif attribute_name == "location":
+            return obj.location
+        elif attribute_name == "rotation_euler":
+            return obj.rotation_euler
+        elif attribute_name == "rotation_forward_vec":
+            # Calc forward vector from rotation matrix
+            rot_mat = obj.rotation_euler.to_matrix()
+            forward = rot_mat @ mathutils.Vector([0, 0, -1])
+            return forward
+        elif attribute_name == "rotation_up_vec":
+            # Calc up vector from rotation matrix
+            rot_mat = obj.rotation_euler.to_matrix()
+            up = rot_mat @ mathutils.Vector([0, 1, 0])
+            return up
+        elif attribute_name == "matrix_world":
+            # Transform matrix_world to given destination frame
+            matrix_world = obj.matrix_world
+            return [[x for x in c] for c in matrix_world]
+        elif attribute_name.startswith("cp_"):
+            custom_property_name = attribute_name[len("cp_"):]
+            # Make sure the requested custom property exist
+            if custom_property_name in obj:
+                return obj[custom_property_name]
+            else:
+                raise Exception("No such custom property: " + custom_property_name)
         else:
-            instanceid_to_obj_idx[instanceid].append(i)
-        hide_names.append(obj_name)
-        obj.hide(True)
-        value_list_per_obj = get_attributes(obj.blender_obj, ["id", "name", "cp_uid",  "location", "cp_jid", "rotation_euler", "matrix_world", "cp_instanceid"])
-        objects_to_save[obj_name] = value_list_per_obj
+            raise Exception("No such attribute: " + attribute_name)
+
+    def get_attributes(obj, attribute_names):
+        value_list_per_obj = {}
+        for attribute_name in attribute_names:
+            value = get_attribute(obj, attribute_name)
+            if isinstance(value, mathutils.Vector) or isinstance(value, mathutils.Euler):
+                value = list(value)
+            value_list_per_obj[attribute_name] = value
+        return value_list_per_obj
+
+    print("Render layouts.")
+    hide_names = []
+    skipped_names =[]
+    objects_to_save = {}
+    instanceid_to_obj_idx = {}
+    for i, obj in enumerate(loaded_objects):
+        obj_name = obj.get_name().lower()
+        obj_category_id = obj.get_cp("category_id")
+        if obj_category_id in things_ids and obj.get_cp("uid") != obj.get_cp("instanceid"):
+            instanceid = obj.get_cp("instanceid")
+            if instanceid not in instanceid_to_obj_idx:
+                instanceid_to_obj_idx[instanceid] = [i]
+            else:
+                instanceid_to_obj_idx[instanceid].append(i)
+            hide_names.append(obj_name)
+            obj.hide(True)
+            value_list_per_obj = get_attributes(obj.blender_obj, ["id", "name", "cp_uid",  "location", "cp_jid", "rotation_euler", "matrix_world", "cp_instanceid"])
+            objects_to_save[obj_name] = value_list_per_obj
+        else:
+            skipped_names.append(obj_name)
+            obj.hide(False)
+    print("instanceid_to_obj_idx keys:", instanceid_to_obj_idx.keys())
+    objects_path = os.path.join(args.output_dir, "object.json")
+    if not os.path.exists(objects_path):
+        with open(objects_path, "w") as f:
+            json.dump(objects_to_save, f)
+        print("Saving objects to %s"%objects_path)
     else:
-        skipped_names.append(obj_name)
-        obj.hide(False)
-print("instanceid_to_obj_idx keys:", instanceid_to_obj_idx.keys())
-objects_path = os.path.join(args.output_dir, "object.json")
-if not os.path.exists(objects_path):
-    with open(objects_path, "w") as f:
-        json.dump(objects_to_save, f)
-    print("Saving objects to %s"%objects_path)
-else:
-    print("Skipping saving object.json!")
+        print("Skipping saving object.json!")
 
-if not layout_data_file_exists:
-    for filepath in [os.path.join(layout_out_dir, filename) for filename in os.listdir(layout_out_dir)]:
-        os.remove(filepath)
-    data = bproc.renderer.render()
-    seg_data = bproc.renderer.render_segmap(map_by=["class"])
-    data.update(seg_data)
-    bproc.writer.write_hdf5(layout_out_dir, data)
-    print(sorted(hide_names))
-    print(sorted(skipped_names))
-    print(sorted(category_ids))
-    print(sorted(things_ids))
-else:
-    print("Skipping layout render!")
-
-inst_mask_out_dir = os.path.join(args.output_dir, "inst_masks")
-if not hdf5_exists(inst_mask_out_dir, len(locations)):
-    if os.path.exists(inst_mask_out_dir):
-        for filepath in [os.path.join(inst_mask_out_dir, filename) for filename in os.listdir(inst_mask_out_dir)]:
-            os.remove(filepath)
-
-    for obj in loaded_objects:
-        obj.hide(True)
-    print("Render instance_maps")
-    inst_mask_data = {}
-    for instanceid in instanceid_to_obj_idx:
-        obj_ids = instanceid_to_obj_idx[instanceid]
-        for obj_idx in obj_ids:
-            loaded_objects[obj_idx].hide(False)
+    if not layout_data_file_exists:
+        if os.path.exists(layout_out_dir):
+            for filepath in [os.path.join(layout_out_dir, filename) for filename in os.listdir(layout_out_dir)]:
+                os.remove(filepath)
+        data = bproc.renderer.render()
         seg_data = bproc.renderer.render_segmap(map_by=["class"])
-        for obj_idx in obj_ids:
-            loaded_objects[obj_idx].hide(True)
-        inst_masks = []
-        for class_segmap in seg_data['class_segmaps']:
-            inst_mask = np.zeros_like(class_segmap)
-            inst_mask[class_segmap!=0] = 1
-            inst_masks.append(inst_mask)
-        print("instanceid %s: %d"%(instanceid, len(inst_masks)))
-        inst_mask_data[instanceid.replace("/", "_")] = inst_masks
-    bproc.writer.write_hdf5(inst_mask_out_dir, inst_mask_data)
+        data.update(seg_data)
+        bproc.writer.write_hdf5(layout_out_dir, data)
+        print(sorted(hide_names))
+        print(sorted(skipped_names))
+        print(sorted(category_ids))
+        print(sorted(things_ids))
+    else:
+        print("Skipping layout render!")
+
+    inst_mask_out_dir = os.path.join(args.output_dir, "inst_masks")
+    if not hdf5_exists(inst_mask_out_dir, len(locations)):
+        if os.path.exists(inst_mask_out_dir):
+            for filepath in [os.path.join(inst_mask_out_dir, filename) for filename in os.listdir(inst_mask_out_dir)]:
+                os.remove(filepath)
+
+        for obj in loaded_objects:
+            obj.hide(True)
+        print("Render instance_maps")
+        inst_mask_data = {}
+        for instanceid in instanceid_to_obj_idx:
+            obj_ids = instanceid_to_obj_idx[instanceid]
+            for obj_idx in obj_ids:
+                loaded_objects[obj_idx].hide(False)
+            seg_data = bproc.renderer.render_segmap(map_by=["class"])
+            for obj_idx in obj_ids:
+                loaded_objects[obj_idx].hide(True)
+            inst_masks = []
+            assert "class_segmaps" in seg_data
+            for class_segmap in seg_data['class_segmaps']:
+                inst_mask = np.zeros_like(class_segmap)
+                inst_mask[class_segmap!=0] = 1
+                inst_masks.append(inst_mask)
+            print("instanceid %s: %d"%(instanceid, len(inst_masks)))
+            inst_mask_data[instanceid.replace("/", "_")] = inst_masks
+        bproc.writer.write_hdf5(inst_mask_out_dir, inst_mask_data)
+    else:
+        print("Skipping instance render!")
 else:
-    print("Skipping instance render!")
+    print("No cameras are generated! Skipping all.")
